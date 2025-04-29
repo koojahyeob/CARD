@@ -1,5 +1,5 @@
 from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_M4, PSMSegLoader, \
-    MSLSegLoader, SMAPSegLoader, SMDSegLoader, SWATSegLoader, UEAloader
+    MSLSegLoader, SMAPSegLoader, SMDSegLoader, SWATSegLoader, UEAloader, LivePpltnDataset
 from data_provider.uea import collate_fn
 from torch.utils.data import DataLoader
 
@@ -15,15 +15,26 @@ data_dict = {
     'SMAP': SMAPSegLoader,
     'SMD': SMDSegLoader,
     'SWAT': SWATSegLoader,
-    'UEA': UEAloader
+    'UEA': UEAloader,
+    "live_ppltn": LivePpltnDataset
 }
 
 
 def data_provider(args, flag,dataset = None):
-    if dataset is None:
-        Data = data_dict[args.data]
-    else:
+    # if dataset is None:
+    #     Data = data_dict[args.data]
+    # else:
+    #     Data = data_dict[dataset]
+    if dataset is not None:
         Data = data_dict[dataset]
+
+    # ② --data 옵션이 live_ppltn(*) 이면 바로 LivePpltnDataset
+    elif args.data.lower() == "live_ppltn":
+        Data = LivePpltnDataset
+
+    # ③ 그 외에는 기존 매핑 테이블로
+    else:
+        Data = data_dict[args.data]
     timeenc = 0 if args.embed != 'timeF' else 1
 
     if flag == 'test':

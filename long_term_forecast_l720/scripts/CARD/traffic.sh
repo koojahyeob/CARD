@@ -19,7 +19,7 @@ model_id_name=traffic_1
 data_name=custom
 
 random_seed=2021
-for pred_len in 720 336 192 96
+for pred_len in 96 192 336 720 
 do
     python -u run_longExp.py \
       --random_seed $random_seed \
@@ -27,6 +27,7 @@ do
       --root_path $root_path_name \
       --data_path $data_path_name \
       --model_id $model_id_name_$seq_len'_'$pred_len \
+      --model_id "${model_id_name}_${seq_len}_${pred_len}" \
       --model $model_name \
       --data $data_name \
       --features M \
@@ -46,5 +47,6 @@ do
     --train_epochs 100\
       --patience 100 \
       --itr 1 --batch_size 4 --learning_rate 0.001 --merge_size 16 \
-      --lradj CARD --warmup_epochs 20 
+      --lradj CARD --warmup_epochs 20 \
+      2>&1 | tee "logs/LongForecasting/${model_name}_${model_id_name}_${seq_len}_${pred_len}.log"
 done

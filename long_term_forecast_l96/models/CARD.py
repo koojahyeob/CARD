@@ -23,12 +23,12 @@ class Model(nn.Module):
         self.task_name = config.task_name
     def forward(self, x, *args, **kwargs):    
 
-        x = x.permute(0,2,1)    
+        x = x.permute(0,2,1)     # B×L×C → B×C×L  // (0,2,1)
 
-        mask = args[-1]            
+        mask = args[-1]  # 결측 마스크(※ imputation 전용)           
         x= self.model(x,mask = mask)
         if self.task_name != 'classification':
-            x = x.permute(0,2,1)   
+            x = x.permute(0,2,1)    # 예측·복원 task만 B×C×L’ → B×L’×C
         return x
     
     
@@ -84,17 +84,16 @@ class CARDformer(nn.Module):
         self.Attentions_norm = nn.ModuleList([nn.Sequential(Transpose(1,2), nn.BatchNorm1d(config.d_model,momentum = config.momentum), Transpose(1,2)) for i in range(config.e_layers)])       
             
         
-
-        
-
     def forward(self, z,*args, **kwargs):     
 
         b,c,s = z.shape
-        
 
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast' or self.task_name == 'anomaly_detection':
             z_mean = torch.mean(z,dim = (-1),keepdims = True)
-            z_std = torch.std(z,dim = (-1),keepdims = True)
+            #z_std = torch.std(z,dim = (-1),keepdims = True)
+            eps = 1e-6
+            z_std = torch.std(z, dim=(-1), keepdims=True).clamp(min=eps)
+
             z =  (z - z_mean)/(z_std + 1e-4)
         
         elif self.task_name == 'imputation':     
@@ -228,24 +227,25 @@ class Attenion(nn.Module):
         
 
         
-        
     def forward(self, src, *args,**kwargs):
 
 
         B,nvars, H, C, = src.shape
-        
-
-
-        
+                
         
         qkv = self.qkv(src).reshape(B,nvars, H, 3, self.n_heads, C // self.n_heads).permute(3, 0, 1,4, 2, 5)
    
 
         q, k, v = qkv[0], qkv[1], qkv[2]
+
+        # 공통 스케일 계수
+        scale_tok = self.head_dim ** -0.5        # <<< 수정 (1)  ─ 1/√d
+        scale_hid = q.shape[-2] ** -0.5          # <<< 수정 (2)  ─ 1/√T
     
+        # Token 방향 Attention
         if not self.over_hidden: 
         
-            attn_score_along_token = torch.einsum('bnhed,bnhfd->bnhef', self.ema(q), self.ema(k))/ self.head_dim ** -0.5
+            attn_score_along_token = torch.einsum('bnhed,bnhfd->bnhef', self.ema(q), self.ema(k)) * scale_tok 
 
             attn_along_token = self.attn_dropout(F.softmax(attn_score_along_token, dim=-1) )
    
@@ -256,7 +256,7 @@ class Attenion(nn.Module):
         else:
 
             v_dp,k_dp = self.dynamic_projection(v,self.dp_v) , self.dynamic_projection(k,self.dp_k)
-            attn_score_along_token = torch.einsum('bnhed,bnhfd->bnhef', self.ema(q), self.ema(k_dp))/ self.head_dim ** -0.5
+            attn_score_along_token = torch.einsum('bnhed,bnhfd->bnhef', self.ema(q), self.ema(k_dp)) * scale_tok
             
 
             attn_along_token = self.attn_dropout(F.softmax(attn_score_along_token, dim=-1) )
@@ -264,7 +264,7 @@ class Attenion(nn.Module):
 
         
         
-        attn_score_along_hidden = torch.einsum('bnhae,bnhaf->bnhef', q,k)/ q.shape[-2] ** -0.5
+        attn_score_along_hidden = torch.einsum('bnhae,bnhaf->bnhef', q,k) * scale_hid
         attn_along_hidden = self.attn_dropout(F.softmax(attn_score_along_hidden, dim=-1) )    
         output_along_hidden = torch.einsum('bnhef,bnhaf->bnhae', attn_along_hidden, v)
 

@@ -712,3 +712,154 @@ class UEAloader(Dataset):
 
     def __len__(self):
         return len(self.all_IDs)
+
+# ---------- 1) NaN/Inf 방어용 헬퍼 ---------------------------------
+def safe_numpy(arr: np.ndarray, fill: str = 'ffill') -> np.ndarray:
+    """
+    NaN / ±Inf 값이 있으면 지정한 방식으로 치환한다.
+        fill = 'zero'  : 모두 0 으로
+        fill = 'ffill' : 이전(valid) 값으로 forward-fill, 전부 NaN 이면 bfill
+        fill = 'mean'  : 각 컬럼 평균으로
+    반환 dtype 은 float32  (torch.Tensor 변환 호환용)
+    """
+    if np.isinf(arr).any():
+        arr = np.nan_to_num(arr, nan=np.nan)   # Inf → NaN
+
+    if np.isnan(arr).any():
+        if fill == 'zero':
+            arr = np.nan_to_num(arr, nan=0.0)
+        elif fill == 'mean':
+            col_mean = np.nanmean(arr, axis=0)
+            inds = np.where(np.isnan(arr))
+            arr[inds] = np.take(col_mean, inds[1])
+        else:               # 'ffill' (기본)
+            arr = (
+                pd.DataFrame(arr)
+                  .fillna(method='ffill')
+                  .fillna(method='bfill')
+                  .values
+            )
+    return arr.astype(np.float32)
+
+# ---------- 2) 실시간 인구-시계열용 데이터셋 -----------------------
+class LivePpltnDataset(Dataset):
+    """
+    CARD 실험용 ▶ 분 단위 유동인구 CSV (live_ppltn_stts_preprocessed_real.csv) 전용
+    ETT-style 인터페이스(seq_len, label_len, pred_len + time encoding) 를 그대로 따릅니다.
+    """
+    def __init__(self,
+                 root_path: str,
+                 data_path: str,
+                 flag: str = "train",               # train / val / test
+                 size = None,                       # (seq_len, label_len, pred_len)
+                 features: str = "M",               # 'M'|'S'|'MS'
+                 target: str = "ppltn_rate20__ITW",
+                 scale: bool = True,
+                 timeenc: int = 1,                  # 0: fourier-like, 1: timeF
+                 freq: str = "t",                   # 't' == minutely
+                 seasonal_patterns = None,
+                 **kwargs):                         # ▶ 여분 파라미터 받아 흘려보내기용
+        super().__init__()
+
+        # ---------- window 크기 ----------
+        if size is None:           # 기본값 (ETT 와 동일 패턴)
+            self.seq_len  = 96
+            self.label_len = 48
+            self.pred_len  = 96
+        else:
+            self.seq_len, self.label_len, self.pred_len = size
+
+        # ---------- 기본 설정 ----------
+        type_map  = {"train":0, "val":1, "test":2}
+        self.set_type  = type_map[flag]                # 0/1/2
+        self.features  = features
+        self.target    = target
+        self.scale     = scale
+        self.timeenc   = timeenc
+        self.freq      = freq
+
+        self.root_path = root_path.rstrip("/\\")
+        self.data_path = data_path
+        self.__read_data__()
+
+    # ==========================================================
+    #  데이터 읽어서 ➊정규화 ➋윈도우 split ➌timestamp encoding
+    # ==========================================================
+    def __read_data__(self):
+        self.scaler = StandardScaler()
+        df_raw = pd.read_csv(os.path.join(self.root_path, self.data_path))
+
+        # ▸ 열 순서 : date, …, target 으로 맞춰서 정렬
+        cols = list(df_raw.columns)
+        cols.remove(self.target);  cols.remove("date")
+        df_raw = df_raw[["date"] + cols + [self.target]]
+
+        # ▸ (train/val/test) split 7:1.5:1.5 (== 0.7 / 0.15 / 0.15)
+        n_total  = len(df_raw)
+        n_train  = int(n_total * 0.7)
+        n_val    = int(n_total * 0.15)
+        borders  = [0,
+                    n_train - self.seq_len,
+                    n_train + n_val - self.seq_len]
+        borders2 = [n_train,
+                    n_train + n_val,
+                    n_total]
+        b1, b2   = borders[self.set_type], borders2[self.set_type]
+
+        # ▸ feature 선택
+        if self.features in ("M", "MS"):
+            df_data = df_raw.iloc[:, 1:]              # 'date' 제외
+        else:                                         # 'S'
+            df_data = df_raw[[self.target]]
+
+        # ▸ 스케일링 (train 구간 기준)
+        if self.scale:
+            self.scaler.fit(df_data.iloc[:n_train].values)
+            data = self.scaler.transform(df_data.values)
+        else:
+            data = df_data.values
+
+        # ▸ timestamp → time feature
+        df_stamp      = df_raw[["date"]].iloc[b1:b2]
+        df_stamp.date = pd.to_datetime(df_stamp.date)
+        if self.timeenc == 0:
+            df_stamp["month"]   = df_stamp.date.dt.month
+            df_stamp["day"]     = df_stamp.date.dt.day
+            df_stamp["weekday"] = df_stamp.date.dt.weekday
+            df_stamp["hour"]    = df_stamp.date.dt.hour
+            df_stamp["minute"]  = df_stamp.date.dt.minute
+            df_stamp["minute"]  = df_stamp.minute // 1         # 분 단위 그대로
+            data_stamp = df_stamp.drop(columns=["date"]).values
+        else:
+            data_stamp = time_features(pd.to_datetime(df_stamp['date'].values), freq=self.freq).transpose(1,0)
+
+        # ▸ NDArray 저장
+        self.data_x    = data[b1:b2]
+        self.data_y    = data[b1:b2]
+        self.data_stamp= data_stamp
+
+    # ==========================================================
+    #  데이터 윈도우 잘라서 반환
+    # ==========================================================
+    def __getitem__(self, idx):
+        s, e          = idx, idx + self.seq_len
+        r_beg         = e - self.label_len
+        r_end         = r_beg + self.label_len + self.pred_len
+
+        seq_x         = safe_numpy(self.data_x[s:e])
+        seq_y         = safe_numpy(self.data_y[r_beg:r_end])
+        seq_x_mark    = self.data_stamp[s:e]
+        seq_y_mark    = self.data_stamp[r_beg:r_end]
+
+        # torch.Tensor 로 변환은 DataLoader 가 뒤에서 알아서 해도 OK
+        return (torch.from_numpy(seq_x),
+                torch.from_numpy(seq_y),
+                torch.from_numpy(seq_x_mark),
+                torch.from_numpy(seq_y_mark))
+
+    def __len__(self):
+        return len(self.data_x) - self.seq_len - self.pred_len + 1
+
+    # 역-정규화
+    def inverse_transform(self, data: np.ndarray):
+        return self.scaler.inverse_transform(data)

@@ -19,7 +19,10 @@ warnings.filterwarnings('ignore')
 class Exp_Short_Term_Forecast(Exp_Basic):
     def __init__(self, args):
         super(Exp_Short_Term_Forecast, self).__init__(args)
-
+         # frequency_map 기본값 설정
+        if not hasattr(self.args, 'frequency_map'):
+            self.args.frequency_map = None
+    
     def _build_model(self):
         if self.args.data == 'm4':
             self.args.pred_len = M4Meta.horizons_map[self.args.seasonal_patterns]  # Up to M4 config
@@ -92,7 +95,8 @@ class Exp_Short_Term_Forecast(Exp_Basic):
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
                 batch_y_mark = batch_y_mark[:, -self.args.pred_len:, f_dim:].to(self.device)
-                loss_value = criterion(batch_x, self.args.frequency_map, outputs, batch_y, batch_y_mark)
+                # loss_value = criterion(batch_x, self.args.frequency_map, outputs, batch_y, batch_y_mark)
+                loss_value = criterion(outputs, batch_y) #ppltn을 위한 loss
                 loss_sharpness = mse((outputs[:, 1:, :] - outputs[:, :-1, :]), (batch_y[:, 1:, :] - batch_y[:, :-1, :]))
                 loss = loss_value  # + loss_sharpness * 1e-5
                 train_loss.append(loss.item())

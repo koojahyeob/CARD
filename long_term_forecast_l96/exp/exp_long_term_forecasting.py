@@ -72,7 +72,13 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
-
+                # loss 계산 직전
+                if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+                    print(f"[NaN DETECT] step {i}, epoch {epoch}")
+                    # 원하는 텐서를 전부 찍어보거나, torch.save 로 덤프
+                    torch.set_printoptions(edgeitems=2, linewidth=120)
+                    print(outputs[0, :5, :5])
+                    raise RuntimeError("NaN in model output")
 
                 if self.args.model == 'CARD' and is_test == False:
                     ratio = np.array([max(1/np.sqrt(i+1),0.0) for i in range(self.args.pred_len)])
@@ -129,10 +135,16 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         for epoch in range(self.args.train_epochs):
             iter_count = 0
             train_loss = []
+            
 
             self.model.train()
             epoch_time = time.time()
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+                if torch.isnan(batch_x).any():
+                    raise RuntimeError("NaN in batch_x")
+                if torch.isnan(batch_y).any():
+                    raise RuntimeError("NaN in batch_y")
+                
                 iter_count += 1
                 model_optim.zero_grad()
                 batch_x = batch_x.float().to(self.device)
@@ -168,7 +180,13 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
-
+                    # loss 계산 직전
+                    if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+                        print(f"[NaN DETECT] step {i}, epoch {epoch}")
+                        # 원하는 텐서를 전부 찍어보거나, torch.save 로 덤프
+                        torch.set_printoptions(edgeitems=2, linewidth=120)
+                        print(outputs[0, :5, :5])
+                        raise RuntimeError("NaN in model output")
 
 
                     if self.args.model == 'CARD':
@@ -225,15 +243,28 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     iter_count = 0
                     time_now = time.time()
 
+                    # ──── ✨ 역전파 구간을 anomaly-detect 블록으로 감싸기 ✨ ────
+                with torch.autograd.set_detect_anomaly(True):        # <-- 추가 (①)
+                    if self.args.use_amp:
+                        scaler.scale(loss).backward()                # (AMP 사용 시)
+                    else:
+                        loss.backward()                              # (일반 FP32)
+
+                # ───────────────── optimizer step ─────────────────────────
                 if self.args.use_amp:
-                    scaler.scale(loss).backward()
                     scaler.step(model_optim)
                     scaler.update()
                 else:
-                    if h_loss != 0:
-                        loss = loss #+ h_loss * 1e-2
-                    loss.backward()
                     model_optim.step()
+                # if self.args.use_amp:
+                #     scaler.scale(loss).backward()
+                #     scaler.step(model_optim)
+                #     scaler.update()
+                # else:
+                #     if h_loss != 0:
+                #         loss = loss #+ h_loss * 1e-2
+                #     loss.backward()
+                #     model_optim.step()
 
 
                 if self.args.lradj == 'TST':

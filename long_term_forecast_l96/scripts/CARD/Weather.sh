@@ -3,8 +3,8 @@ if [ ! -d "./logs/LongForecasting" ]; then
 fi
 
 
-# export WANDB_BASE_URL="https://api.wandb.ai"
-# export WANDB_API_KEY=
+export WANDB_BASE_URL="https://api.wandb.ai"
+export WANDB_API_KEY= "2ad137270048215c8e5b56aa238c2ee91d3afc06"
 export WANDB_MODE=offline
 
 model_name=CARD
@@ -23,6 +23,7 @@ do
     --root_path ./dataset/weather/ \
     --data_path weather.csv \
     --model_id weather_96_$pred_len \
+    --model_id "weather_96_${pred_len}" \
     --model $model_name \
     --data custom \
     --features M \
@@ -48,7 +49,7 @@ do
     --train_epochs 100 --lradj CARD \
     --itr 1 --batch_size 128 --learning_rate 0.0001 \
     --dp_rank 8 --top_k 5   --mask_rate 0 --warmup_epochs 0 \
-    2>&1 | tee logs/LongForecasting/$model_name'_'Weather_96_$pred_len'.log' & \
+    2>&1 | tee "logs/LongForecasting/${model_name}_Weather_96_${pred_len}.log" &
 
 
 done
