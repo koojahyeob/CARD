@@ -6,7 +6,7 @@ pred_lens=(96 192 336 720)
 cuda_ids1=(0 1 2 3)
 
 export WANDB_BASE_URL="https://api.wandb.ai"
-export WANDB_API_KEY= 2ad137270048215c8e5b56aa238c2ee91d3afc06
+export WANDB_API_KEY= ""
 export WANDB_MODE=offline
 
 for i in "${!pred_lens[@]}"; do

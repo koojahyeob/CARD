@@ -21,15 +21,64 @@ class Model(nn.Module):
         super().__init__()    
         self.model = CARDformer(config)
         self.task_name = config.task_name
-    def forward(self, x, *args, **kwargs):    
+        
+    def forward(self, x, *args, output_attention=False, **kwargs):
+        x = x.permute(0,2,1)
+        mask = args[-1]
+        out = self.model(x, mask=mask, output_attention=output_attention)  # output_attention 전달
+        #out = self.model(x, mask=mask)
+    
+        if isinstance(out, tuple):
+            if len(out) == 3:
+                x, attn_maps_channel, attn_maps_token = out
+                attns = (attn_maps_channel, attn_maps_token)
+            else:
+                x, attns = out
+        else:
+            x = out
+        
+        # if self.task_name != 'classification':
+        #     x = x.permute(0,2,1)
+            
+        # # 항상 3차원 반환 (batch, seq, feature)
+        # if x.ndim == 2:
+        #     x = x[None, ...]  # (seq, feature) -> (1, seq, feature)
+        # elif x.ndim == 1:
+        #     x = x[None, :, None]
+        
+        # if output_attention:
+            
+        #     return x, attns
+        # else:
+        #     return x
+        
+        # if self.task_name != 'classification':
+        #     if x.ndim == 3:
+        #         x = x.permute(0, 2, 1)  # (batch, pred_len, feature)
+        #     else:
+        #         raise RuntimeError(f"Model output shape {x.shape} is not 3D after CARDformer, batch dimension is missing!")
 
-        x = x.permute(0,2,1)     # B×L×C → B×C×L  // (0,2,1)
+        # if output_attention:
+        #     return x, attns
+        # else:
+        #     return x
+        
+        # print("Model.forward return x shape(before fix):", x.shape)
+        
+        # --- batch 차원 보장 ---
+        if x.ndim == 2:
+            x = x.unsqueeze(0)  # (seq, feature) -> (1, seq, feature)
+        elif x.ndim == 1:
+            x = x.unsqueeze(0).unsqueeze(-1)
+        elif x.ndim != 3:
+            raise RuntimeError(f"Model output shape {x.shape} is not 3D after CARDformer, batch dimension is missing!")
 
-        mask = args[-1]  # 결측 마스크(※ imputation 전용)           
-        x= self.model(x,mask = mask)
-        if self.task_name != 'classification':
-            x = x.permute(0,2,1)    # 예측·복원 task만 B×C×L’ → B×L’×C
-        return x
+        # print("Model.forward return x shape(after fix):", x.shape)
+        
+        if output_attention:
+            return x, attns
+        else:
+            return x
     
     
     
@@ -84,62 +133,127 @@ class CARDformer(nn.Module):
         self.Attentions_norm = nn.ModuleList([nn.Sequential(Transpose(1,2), nn.BatchNorm1d(config.d_model,momentum = config.momentum), Transpose(1,2)) for i in range(config.e_layers)])       
             
         
-    def forward(self, z,*args, **kwargs):     
-
-        b,c,s = z.shape
+    def forward(self, z, *args, output_attention=False, **kwargs):     
+        b, c, s = z.shape
+        # print(f"[DEBUG] 입력 z shape: {z.shape} (b={b}, c={c}, s={s})")  # ★ 입력 feature 개수 확인
 
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast' or self.task_name == 'anomaly_detection':
-            z_mean = torch.mean(z,dim = (-1),keepdims = True)
-            #z_std = torch.std(z,dim = (-1),keepdims = True)
+            z_mean = torch.mean(z, dim=(-1), keepdims=True)
             eps = 1e-6
+            
             z_std = torch.std(z, dim=(-1), keepdims=True).clamp(min=eps)
-
-            z =  (z - z_mean)/(z_std + 1e-4)
+            
+            z = (z - z_mean) / (z_std + 1e-4)
         
         elif self.task_name == 'imputation':     
-            mask = kwargs['mask'].permute(0,2,1) 
+            mask = kwargs['mask'].permute(0, 2, 1) 
             z_mean = torch.sum(z, dim=-1) / torch.sum(mask == 1, dim=-1)
             z_mean = z_mean.unsqueeze(-1)
             z = z - z_mean
             z = z.masked_fill(mask == 0, 0)
-            z_std = torch.sqrt(torch.sum(z * z, dim=-1) /
-                           torch.sum(mask == 1, dim=-1) + 1e-5)
+            z_std = torch.sqrt(torch.sum(z * z, dim=-1) / torch.sum(mask == 1, dim=-1) + 1e-5)
             z_std = z_std.unsqueeze(-1)
             z /= z_std + 1e-4
 
-       
-        
-            
-        zcube = z.unfold(dimension=-1, size=self.patch_len, step=self.stride)                 
-        z_embed = self.input_dropout(self.W_input_projection(zcube))+ self.W_pos_embed 
-        
-        
+        zcube = z.unfold(dimension=-1, size=self.patch_len, step=self.stride)   
+        #print("zcube shape:", zcube.shape)   
+        # print(f"[DEBUG] zcube shape (after unfold): {zcube.shape}")  # ★ unfold 후 shape 확인           
+        z_embed = self.input_dropout(self.W_input_projection(zcube)) + self.W_pos_embed 
+        #print("z_embed shape:", z_embed.shape)
+        # print(f"[DEBUG] z_embed shape (after projection): {z_embed.shape}")  # ★ projection 후 shape 확인
+
         if self.use_statistic:
             
-            z_stat = torch.cat((z_mean,z_std),dim = -1)
-            if z_stat.shape[-2]>1:
-                z_stat = (z_stat - torch.mean(z_stat,dim =-2,keepdims = True))/( torch.std(z_stat,dim =-2,keepdims = True)+1e-4)
+            z_stat = torch.cat((z_mean, z_std), dim=-1)
+            if z_stat.shape[-2] > 1:
+                z_stat = (z_stat - torch.mean(z_stat, dim=-2, keepdims=True)) / (torch.std(z_stat, dim=-2, keepdims=True) + 1e-4)
             z_stat = self.W_statistic(z_stat)
-            z_embed = torch.cat((z_stat.unsqueeze(-2),z_embed),dim = -2) 
+            z_embed = torch.cat((z_stat.unsqueeze(-2), z_embed), dim=-2) 
+        
         else:
-            cls_token = self.cls.repeat(z_embed.shape[0],z_embed.shape[1],1,1)
-            z_embed = torch.cat((cls_token,z_embed),dim = -2) 
+            cls_token = self.cls.repeat(z_embed.shape[0], z_embed.shape[1], 1, 1)
+            z_embed = torch.cat((cls_token, z_embed), dim=-2) 
 
         inputs = z_embed
-        b,c,t,h = inputs.shape 
-        for a_2,a_1,mlp,drop,norm  in zip(self.Attentions_over_token, self.Attentions_over_channel,self.Attentions_mlp ,self.Attentions_dropout,self.Attentions_norm ):
-            output_1 = a_1(inputs.permute(0,2,1,3)).permute(0,2,1,3)
-            output_2 = a_2(output_1)
-            outputs = drop(mlp(output_1+output_2))+inputs
-            outputs = norm(outputs.reshape(b*c,t,-1)).reshape(b,c,t,-1) 
-            inputs = outputs
+        b, c, t, h = inputs.shape  
+        print(f"[DEBUG] inputs shape (최종 채널 수 c): {inputs.shape} (b={b}, c={c}, t={t}, h={h})")  # ★ 실제 attention에 들어가는 채널 수
         
+        attn_maps_channel = []  # 채널 간 attention map 저장용 리스트
+        attn_maps_token = []    # 토큰(patch) 간 attention map 저장용 리스트
+        
+        for a_2, a_1, mlp, drop, norm in zip(self.Attentions_over_token, self.Attentions_over_channel, self.Attentions_mlp, self.Attentions_dropout, self.Attentions_norm):
+            # 채널 간 attention map 저장
+            output_1 = a_1(inputs.permute(0, 2, 1, 3)).permute(0, 2, 1, 3)
+            
+            if hasattr(a_1, 'last_attn_map'):
+                attn_maps_channel.append(a_1.last_attn_map_hidden)
+                print(f"[DEBUG] attn_maps_channel shape: {a_1.last_attn_map_hidden.shape}")
+            
+            else:
+                attn_maps_channel.append(None)
+            
+            # 토큰 간 attention map 저장
+            output_2 = a_2(output_1)
+            
+            if hasattr(a_2, 'last_attn_map'):
+                attn_maps_token.append(a_2.last_attn_map)
+            
+            else:
+                attn_maps_token.append(None)
+            
+            outputs = drop(mlp(output_1 + output_2)) + inputs
+            outputs = norm(outputs.reshape(b * c, t, -1)).reshape(b, c, t, -1) 
+            inputs = outputs
+
+        # if self.task_name != 'classification':
+        #     #print("outputs before W_out:", outputs.shape)
+        #     z_out = self.W_out(outputs.reshape(b, c, -1))  # (batch, feature, pred_len)
+        #     #print("z_out after W_out:", z_out.shape)
+        #     z = z_out * (z_std + 1e-4) + z_mean  # (batch, feature, pred_len)
+        #     z = z.permute(0, 2, 1)  # (batch, pred_len, feature)
+        #     #print("CARDformer return z shape:", z.shape)
         if self.task_name != 'classification':
-            z_out = self.W_out(outputs.reshape(b,c,-1))  
-            z = z_out *(z_std+1e-4)  + z_mean 
+            # print("outputs before W_out:", outputs.shape)
+            # print(f"[DEBUG] outputs.shape before reshape: {outputs.shape}, b={b}, c={c}")
+            z_out = self.W_out(outputs.reshape(b, c, -1).contiguous())  # (batch, feature, pred_len)
+            # print(f"[DEBUG] z_out.shape after W_out: {z_out.shape}")
+            # print("z_out shape:", z_out.shape)
+            # print("z_mean shape:", z_mean.shape)
+            # print("z_std shape:", z_std.shape)
+            
+            # z_mean, z_std shape 맞추기
+            if z_mean.shape[-1] == 1:
+                z_mean = z_mean.expand(-1, -1, z_out.shape[-1])
+            if z_std.shape[-1] == 1:
+                z_std = z_std.expand(-1, -1, z_out.shape[-1])
+            
+            # shape가 다르면 permute로 맞추기
+            if z_out.shape != z_mean.shape:
+                # print("Shape mismatch! z_out:", z_out.shape, "z_mean:", z_mean.shape)
+                
+                # 예를 들어 z_out (b, pred_len, feature), z_mean (b, feature, pred_len)일 때
+                if z_out.shape[1] == z_mean.shape[2] and z_out.shape[2] == z_mean.shape[1]:
+                    z_out = z_out.permute(0, 2, 1)
+                    # print("Permuted z_out shape:", z_out.shape)
+            z = z_out * (z_std + 1e-4) + z_mean
+            z = z.permute(0, 2, 1)  # (batch, pred_len, feature)
+            # print("CARDformer return z shape:", z.shape)
+            
+            # 추가
+            if z.dim() == 2:
+                z = z.unsqueeze(0)  # (1, pred_len, feature)
+            elif z.dim() == 1:
+                z = z.unsqueeze(0).unsqueeze(-1)
+    
         else:
-            z = self.W_out(torch.mean(outputs[:,:,:,:],dim = -2).reshape(b,-1))
-        return z
+            z = self.W_out(torch.mean(outputs[:, :, :, :], dim=-2).reshape(b, -1))
+        
+
+        if output_attention:
+            # print("CARDformer return z shape:", z.shape)
+            return z, attn_maps_channel, attn_maps_token  # 두 종류 모두 반환
+        else:
+            return z
     
 
 class Attenion(nn.Module):
@@ -229,45 +343,35 @@ class Attenion(nn.Module):
         
     def forward(self, src, *args,**kwargs):
 
-
+        print(f"[DEBUG][Attenion] src shape: {src.shape}")  # ★ 채널(nvars) 변화 추적
         B,nvars, H, C, = src.shape
                 
         
         qkv = self.qkv(src).reshape(B,nvars, H, 3, self.n_heads, C // self.n_heads).permute(3, 0, 1,4, 2, 5)
-   
-
         q, k, v = qkv[0], qkv[1], qkv[2]
-
-        # 공통 스케일 계수
-        scale_tok = self.head_dim ** -0.5        # <<< 수정 (1)  ─ 1/√d
-        scale_hid = q.shape[-2] ** -0.5          # <<< 수정 (2)  ─ 1/√T
-    
-        # Token 방향 Attention
-        if not self.over_hidden: 
+        scale_tok = self.head_dim ** -0.5
+        scale_hid = q.shape[-2] ** -0.5
         
+        # Token 방향 Attention
+        
+        if not self.over_hidden: 
             attn_score_along_token = torch.einsum('bnhed,bnhfd->bnhef', self.ema(q), self.ema(k)) * scale_tok 
-
             attn_along_token = self.attn_dropout(F.softmax(attn_score_along_token, dim=-1) )
-   
+            self.last_attn_map = attn_along_token.detach().cpu()  # <-- attention map 저장
             output_along_token = torch.einsum('bnhef,bnhfd->bnhed', attn_along_token, v)
-
-
-            
+        
         else:
-
             v_dp,k_dp = self.dynamic_projection(v,self.dp_v) , self.dynamic_projection(k,self.dp_k)
             attn_score_along_token = torch.einsum('bnhed,bnhfd->bnhef', self.ema(q), self.ema(k_dp)) * scale_tok
-            
-
             attn_along_token = self.attn_dropout(F.softmax(attn_score_along_token, dim=-1) )
+            self.last_attn_map = attn_along_token.detach().cpu()  # <-- attention map 저장
             output_along_token = torch.einsum('bnhef,bnhfd->bnhed', attn_along_token, v_dp)
 
-        
-        
         attn_score_along_hidden = torch.einsum('bnhae,bnhaf->bnhef', q,k) * scale_hid
         attn_along_hidden = self.attn_dropout(F.softmax(attn_score_along_hidden, dim=-1) )    
+        self.last_attn_map_hidden = attn_along_hidden.detach().cpu()  # hidden 방향도 저장
         output_along_hidden = torch.einsum('bnhef,bnhaf->bnhae', attn_along_hidden, v)
-
+        print(f"[DEBUG][Attenion] last_attn_map_hidden shape (channel): {self.last_attn_map_hidden.shape}")
 
 
         merge_size = self.merge_size
@@ -276,14 +380,10 @@ class Attenion(nn.Module):
                             'bn (hl1 hl2 hl3) d -> bn  hl2 (hl3 hl1) d', 
                             hl1 = self.n_heads//merge_size, hl2 = output_along_token.shape[-2] ,hl3 = merge_size
                             ).reshape(B*nvars,-1,self.head_dim*self.n_heads)
-        
-        
             output2 = rearrange(output_along_hidden.reshape(B*nvars,-1,self.head_dim),
                             'bn (hl1 hl2 hl3) d -> bn  hl2 (hl3 hl1) d', 
                             hl1 = self.n_heads//merge_size, hl2 = output_along_token.shape[-2] ,hl3 = merge_size
                             ).reshape(B*nvars,-1,self.head_dim*self.n_heads)
-        
-
         output1 = self.norm_post1(output1)
         output1 = output1.reshape(B,nvars, -1, self.n_heads * self.head_dim)
         output2 = self.norm_post2(output2)

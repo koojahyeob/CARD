@@ -39,3 +39,32 @@ def metric(pred, true):
     mspe = MSPE(pred, true)
 
     return mae, mse, rmse, mape, mspe
+
+def metric_by_var(pred: np.ndarray,
+                  true: np.ndarray,
+                  var_axis: int = 2):
+    """
+    채널/변수별 MSE·MAE 등을 반환
+    pred, true : shape = (N, pred_len, C)
+
+    Returns
+    -------
+    dict
+        {
+          'mae': (C,) ndarray,
+          'mse': (C,) ndarray,
+          'rmse':(C,) ndarray,
+          'mape':(C,) ndarray,
+          'mspe':(C,) ndarray
+        }
+    """
+    # 배치축 + 시점축을 모두 평균하고, var_axis (채널) 만 남긴다
+    reduce_axes = tuple(i for i in range(pred.ndim) if i != var_axis)
+
+    mae  = np.mean(np.abs(pred - true),        axis=reduce_axes)
+    mse  = np.mean(np.square(pred - true),     axis=reduce_axes)
+    rmse = np.sqrt(mse)
+    mape = np.mean(np.abs((pred - true) / true + 1e-8), axis=reduce_axes)
+    mspe = np.mean(np.square((pred - true) / true + 1e-8), axis=reduce_axes)
+
+    return dict(mae=mae, mse=mse, rmse=rmse, mape=mape, mspe=mspe)

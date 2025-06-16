@@ -4,7 +4,7 @@ fi
 
 
 export WANDB_BASE_URL="https://api.wandb.ai"
-export WANDB_API_KEY= "2ad137270048215c8e5b56aa238c2ee91d3afc06"
+export WANDB_API_KEY= ""
 export WANDB_MODE=offline
 
 model_name=CARD

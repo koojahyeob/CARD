@@ -753,7 +753,7 @@ class LivePpltnDataset(Dataset):
                  flag: str = "train",               # train / val / test
                  size = None,                       # (seq_len, label_len, pred_len)
                  features: str = "M",               # 'M'|'S'|'MS'
-                 target: str = "ppltn_rate20__ITW",
+                 target: str = "ppltn_rate20__ITW",  #위 features로 target 무시
                  scale: bool = True,
                  timeenc: int = 1,                  # 0: fourier-like, 1: timeF
                  freq: str = "t",                   # 't' == minutely
@@ -790,9 +790,13 @@ class LivePpltnDataset(Dataset):
         df_raw = pd.read_csv(os.path.join(self.root_path, self.data_path))
 
         # ▸ 열 순서 : date, …, target 으로 맞춰서 정렬
-        cols = list(df_raw.columns)
-        cols.remove(self.target);  cols.remove("date")
-        df_raw = df_raw[["date"] + cols + [self.target]]
+        # cols = list(df_raw.columns)
+        # cols.remove(self.target);  cols.remove("date")
+        # df_raw = df_raw[["date"] + cols + [self.target]]
+        # ▸ feature 컬럼만 추출 (date, target 제외)
+        all_feature_cols = [col for col in df_raw.columns if col != "date"]
+        self.col_names = all_feature_cols  # 32개 feature만
+        df_data = df_raw[self.col_names]
 
         # ▸ (train/val/test) split 7:1.5:1.5 (== 0.7 / 0.15 / 0.15)
         n_total  = len(df_raw)
@@ -807,12 +811,22 @@ class LivePpltnDataset(Dataset):
         b1, b2   = borders[self.set_type], borders2[self.set_type]
 
         # ▸ feature 선택
-        if self.features in ("M", "MS"):
-            df_data = df_raw.iloc[:, 1:]              # 'date' 제외
-        else:                                         # 'S'
-            df_data = df_raw[[self.target]]
+        # if self.features in ("M", "MS"):
+        #     df_data = df_raw.iloc[:, 1:]              # 'date' 제외
+        #     self.col_names = list(df_data.columns)
+        # else:                                         # 'S'
+        #     df_data = df_raw[[self.target]]
+        #     self.col_names = [self.target]           # ★ 단일 변수일 때
+        # ───────── 열 이름은 **무조건** 저장 ─────────
+        # self.col_names = list(df_raw.columns[1:])     # 'date' 제외한 전부
 
-        # ▸ 스케일링 (train 구간 기준)
+        # # ▸ feature 선택
+        # if self.features in ("M", "MS"):
+        #     df_data = df_raw[self.col_names]
+        # else:                     # 'S' 모드
+        #     df_data = df_raw[[self.target]]
+            
+        # ▸ 스케일링 (train 구간 기준) standard scaler
         if self.scale:
             self.scaler.fit(df_data.iloc[:n_train].values)
             data = self.scaler.transform(df_data.values)
@@ -850,6 +864,7 @@ class LivePpltnDataset(Dataset):
         seq_y         = safe_numpy(self.data_y[r_beg:r_end])
         seq_x_mark    = self.data_stamp[s:e]
         seq_y_mark    = self.data_stamp[r_beg:r_end]
+        
 
         # torch.Tensor 로 변환은 DataLoader 가 뒤에서 알아서 해도 OK
         return (torch.from_numpy(seq_x),

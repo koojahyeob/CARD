@@ -2,6 +2,7 @@
 # =============================================================
 #  ppltn_rate.sh  ──  CARD 모델로 분단위 유동인구(ppltn_rate20) 예측
 # =============================================================
+# & ".\scripts\CARD\ppltn_rate.sh"
 
 torch.autograd.detect_anomaly()
 
@@ -11,22 +12,28 @@ if [ ! -d "./logs/ShortForecasting" ]; then
 fi
 
 # ---------- (선택) Weights & Biases ----------
-export WANDB_BASE_URL="https://api.wandb.ai"
-export WANDB_API_KEY="2ad137270048215c8e5b56aa238c2ee91d3afc06"
-export WANDB_MODE=offline            # online 으로 바꾸면 자동 업로드
+# export WANDB_BASE_URL="https://api.wandb.ai"
+# export WANDB_API_KEY=""
+# export WANDB_MODE=offline            # online 으로 바꾸면 자동 업로드
+
+#DATA=live_ppltn_stts_241101_250610_preprocessed_real.csv       # CSV 파일명
+# data_length=241101_250610_run_250611_ver1  # 공백 제거 및 변수명 수정
+# 실제로 241125부터 데이터 들어가고, 성수와 홍대입구역(2호선) 인구수는 제외함 (결측값 너무 많아서)
 
 # ---------- 데이터 경로 ----------
 ROOT=./dataset/KT/live_ppltn_stts    # 끝에 / 없음
-DATA=live_ppltn_stts_preprocessed_real.csv       # CSV 파일명
-
-# ---------- 실험 파라미터 ----------
+# DATA=live_ppltn_stts_250401_250507_preprocessed_real.csv       # CSV 파일명
+DATA=live_ppltn_stts_241101_250610_preprocessed_real.csv       # CSV 파일명
+# data_length=250401_250507_run_250613_ver2  # 공백 제거 및 변수명 수정
+data_length=241101_250610_run_250616_prac  # 공백 제거 및 변수명 수정
+# ---------- 실험 파라미터 ----------7
 model_name=CARD
 
 # 예측 horizon 4가지 예시 (10·20·30·60분 뒤) ─ 한 GPU 당 하나씩 병렬
-pred_lens=(10 20 30 60)             
-cuda_ids=(0 1 2 3)                   # 사용 가능한 GPU 번호
+pred_lens=(36)   # 예측 길이 (시퀀스 단위 10 -> 50분)      
+cuda_ids=(0)                   # 사용 가능한 GPU 번호
 
-seq_len=40     # 입력 길이
+seq_len=96    # 입력 길이
 label_len=20   # 디코더 warm‑up 길이
 
 # ---------- 루프 ----------
@@ -50,16 +57,20 @@ for ((i = 0; i < ${#pred_lens[@]}; i++)); do
     --pred_len ${pred_len} \
     --freq t \
     --factor 3 \
-    --enc_in 48  --dec_in 48  --c_out 48 \
+    --enc_in 32  --dec_in 32  --c_out 32 \
     --e_layers 2  --d_layers 1 \
     --d_model 128 --n_heads 8 --d_ff 256 \
-    --dropout 0.1 --fc_dropout 0.1 --head_dropout 0.0 \
-    --patch_len 16 --stride 8 \
+    --dropout 0.2 --fc_dropout 0.2 --head_dropout 0.0 \
+    --patch_len 32 --stride 8 \
     --train_epochs 1000 --patience 10 \
-    --batch_size 8 --learning_rate 0.002 \
+    --batch_size 32 --learning_rate 0.002 \
     --des "Exp" --itr 1 \
-    2>&1 | tee "logs/ShortForecasting/${model_name}_ppltn_${seq_len}_${pred_len}.log" &
+    --output_attention \
+    --data_length "${data_length}" \
+    2>&1 | tee "logs/ShortForecasting/${model_name}_ppltn_${seq_len}_${pred_len}_${data_length}.log" &
 done
 
 wait   # 모든 백그라운드 프로세스 종료 대기
 echo "==== ALL CARD RUNS FINISHED ===="
+
+# Attention 가중치 출력 (시각화 용도) --output_attention \

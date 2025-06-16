@@ -51,9 +51,12 @@ if __name__ == '__main__':
     # model define
     parser.add_argument('--top_k', type=int, default=5, help='for TimesBlock')
     parser.add_argument('--num_kernels', type=int, default=6, help='for Inception')
-    parser.add_argument('--enc_in', type=int, default=7, help='encoder input size')
-    parser.add_argument('--dec_in', type=int, default=7, help='decoder input size')
-    parser.add_argument('--c_out', type=int, default=7, help='output size')
+    
+    # default 7에서 32로 수정
+    parser.add_argument('--enc_in', type=int, default=32, help='encoder input size')
+    parser.add_argument('--dec_in', type=int, default=32, help='decoder input size')
+    parser.add_argument('--c_out', type=int, default=32, help='output size')
+    
     parser.add_argument('--d_model', type=int, default=512, help='dimension of model')
     parser.add_argument('--n_heads', type=int, default=8, help='num of heads')
     parser.add_argument('--e_layers', type=int, default=2, help='num of encoder layers')
@@ -100,7 +103,8 @@ if __name__ == '__main__':
         
     parser.add_argument('--alpha', type=float, default=0.5)
     parser.add_argument('--beta', type=float, default=0.5)
-    parser.add_argument('--dp_rank', type=int,default = 8)
+    parser.add_argument('--dp_rank', type=int,default = 8) # key 차원 
+    # parser.add_argument('--dp_rank', type=int,default = 32) # key 차원 
     parser.add_argument('--rescale', type=int,default = 1)
     
     parser.add_argument('--fc_dropout', type=float, default=0.3, help='fully connected dropout')
@@ -127,8 +131,21 @@ if __name__ == '__main__':
     parser.add_argument('--win_size', type=int, default=2, help='window size for segment merge')
     parser.add_argument('--fix_seed', type = str,default='None')
 
+    parser.add_argument('--data_length', type=str, required=True, help='data length info for experiment log')
+    
+
     args = parser.parse_args()
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
+
+    # --- target_columns 32개 자동 생성 추가 ---
+    ages = [0, 10, 20, 30, 40, 50, 60, 70]
+    genders = ["GN", "MD", "ITW", "HD"]
+    args.target_columns = [
+        f"ppltn_rate{age}__{gender}"
+        for age in ages
+        for gender in genders
+    ]
+    # --- target_columns 추가 끝 ---
 
     if args.use_gpu and args.use_multi_gpu:
         args.devices = args.devices.replace(' ', '')
@@ -164,7 +181,7 @@ if __name__ == '__main__':
     if args.is_training:
         for ii in range(args.itr):
             # setting record of experiments
-            setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_{}_{}'.format(
+            setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_{}_{}_{}'.format(
                 args.task_name,
                 args.model_id,
                 args.model,
@@ -181,18 +198,26 @@ if __name__ == '__main__':
                 args.factor,
                 args.embed,
                 args.distil,
-                args.des, ii)
+                args.des, ii,
+                args.data_length)
 
             exp = Exp(args)  # set experiments
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
-            exp.train(setting)
-
+            try:
+                exp.train(setting)
+                print("train finished")
+                exp.plot_train_predictions(setting)
+            except Exception as e:
+                
+                print("Error after train:", e)
+                #exp.train(setting)
+            
             print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
             exp.test(setting)
             torch.cuda.empty_cache()
     else:
         ii = 0
-        setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_{}_{}'.format(
+        setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_fc{}_eb{}_dt{}_{}_{}_{}'.format(
             args.task_name,
             args.model_id,
             args.model,
@@ -209,9 +234,18 @@ if __name__ == '__main__':
             args.factor,
             args.embed,
             args.distil,
-            args.des, ii)
+            args.des, ii,
+            args.data_length)
 
         exp = Exp(args)  # set experiments
+        print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+        try:
+            exp.train(setting)
+            print("train finished")
+            exp.plot_train_predictions(setting)
+        except Exception as e:
+            print("Error after train:", e)
+                    
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
         exp.test(setting, test=1)
         torch.cuda.empty_cache()

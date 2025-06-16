@@ -1,0 +1,88 @@
+from exp.exp_long_term_forecasting import Exp_Long_Term_Forecast
+from argparse import Namespace
+
+# 1. 실험 파라미터 정의 (학습 때와 동일하게 맞추기)
+args = Namespace(
+    task_name='long_term_forecast',
+    is_training=0,
+    model_id='ppltn_96_36',
+    model='CARD',
+    data='live_ppltn',
+    root_path='./dataset/KT/live_ppltn_stts/',
+    data_path='live_ppltn_stts_250401_250507_preprocessed_real.csv',
+    features='M',
+    target='ppltn_rate20__ITW',
+    freq='t',
+    checkpoints='./checkpoints/',
+    seq_len=96,
+    label_len=20,
+    pred_len=36,
+    seasonal_patterns='Monthly',
+    mask_rate=0.25,
+    anomaly_ratio=0.25,
+    top_k=5,
+    num_kernels=6,
+    enc_in=48,
+    dec_in=48,
+    c_out=48,
+    d_model=128,
+    n_heads=8,
+    e_layers=2,
+    d_layers=1,
+    d_ff=256,
+    moving_avg=25,
+    factor=3,
+    distil=True,
+    dropout=0.2,
+    embed='timeF',
+    activation='gelu',
+    output_attention=True,
+    num_workers=0,
+    itr=1,
+    train_epochs=1000,
+    batch_size=16,
+    patience=10,
+    learning_rate=0.002,
+    des='Exp',
+    loss='MSE',
+    lradj='type1',
+    use_amp=False,
+    use_gpu=True,
+    gpu=0,
+    use_multi_gpu=False,
+    devices='0',
+    p_hidden_dims=[128, 128],
+    p_hidden_layers=2,
+    alpha=0.5,
+    beta=0.5,
+    dp_rank=8,
+    rescale=1,
+    fc_dropout=0.2,
+    head_dropout=0.0,
+    patch_len=16,
+    stride=8,
+    momentum=0.1,
+    optimizer='adam',
+    local_rank=0,
+    devices_number=1,
+    use_statistic=False,
+    use_decomp=False,
+    same_smoothing=False,
+    warmup_epochs=0,
+    weight_decay=0,
+    merge_size=2,
+    use_untoken=0,
+    pct_start=0.3,
+    seg_len=6,
+    win_size=2,
+    fix_seed='None'
+)
+
+# 2. 실험 객체 생성
+exp = Exp_Long_Term_Forecast(args)
+
+# 3. setting 문자열 (학습 때와 동일하게)
+setting = 'long_term_forecast_ppltn_96_36_CARD_live_ppltn_ftM_sl96_ll20_pl36_dm128_nh8_el2_dl1_df256_fc3_ebtimeF_dtTrue_Exp_0'
+
+# 4. test만 실행 (checkpoint 자동 로드)
+exp.test(setting, test=1)

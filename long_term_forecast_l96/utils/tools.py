@@ -133,16 +133,37 @@ class StandardScaler():
         return (data * self.std) + self.mean
 
 
-def visual(true, preds=None, name='./pic/test.pdf'):
+def visual(true, preds=None, name='./pic/test.pdf',
+           xlabel="Time step", ylabel="scaled value", title=None,
+           figsize=(6, 4)):
     """
     Results visualization
+    ---------------------
+    Parameters
+    ----------
+    true   : 1‑D array‑like
+    preds  : 1‑D array‑like | None
+    name   : str           | 파일 경로(.pdf, .png …)
+    xlabel : str
+    ylabel : str
+    title  : str | None
+    figsize: tuple(w, h)
     """
-    plt.figure()
-    plt.plot(true, label='GroundTruth', linewidth=2)
+    plt.figure(figsize=figsize)
+
+    plt.plot(true,  label='GroundTruth', linewidth=2)
     if preds is not None:
         plt.plot(preds, label='Prediction', linewidth=2)
+
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    if title is not None:
+        plt.title(title)
+
     plt.legend()
+    plt.tight_layout()
     plt.savefig(name, bbox_inches='tight')
+    plt.close()
 
 
 def adjustment(gt, pred):
