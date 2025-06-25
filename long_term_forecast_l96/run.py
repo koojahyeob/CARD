@@ -144,7 +144,17 @@ if __name__ == '__main__':
         f"ppltn_rate{age}__{gender}"
         for age in ages
         for gender in genders
+        # if not (age == 40 and gender == "GN")  # 예시: ppltn_rate40__GN 제외
     ]
+    
+#     # append하기
+#     args.target_columns += [
+#     "GN_area_ppltn_median",
+#     "HD_area_ppltn_median",
+#     "ITW_area_ppltn_median",
+#     "MD_area_ppltn_median"
+# ]
+
     # --- target_columns 추가 끝 ---
 
     if args.use_gpu and args.use_multi_gpu:

@@ -403,6 +403,7 @@ import time
 import warnings
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
 import wandb
 
@@ -786,8 +787,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
         return self.model
 
-    # train 잘 되는지 확인하는 plot 코드
-    def plot_train_predictions(self, setting, num_batches=1):
+    def plot_train_predictions(self, setting, num_batches=1, max_features=5):
         print("plot_train_predictions called!") 
         train_data, train_loader = self._get_data(flag='train')
         self.model.eval()
@@ -831,21 +831,122 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         trues = np.concatenate(trues, axis=0)
         print("preds shape:", preds.shape)
         print("trues shape:", trues.shape)
-        plt.figure(figsize=(10,5))
-        # shape에 따라 인덱싱 다르게
-        if preds.ndim == 3:
-            plt.plot(trues[0,:,0], label='True')
-            plt.plot(preds[0,:,0], label='Pred')
-        elif preds.ndim == 2:
-            plt.plot(trues[0,:], label='True')
-            plt.plot(preds[0,:], label='Pred')
-        else:
-            raise ValueError(f"Unexpected preds shape: {preds.shape}")
-        plt.title('Train Prediction vs True')
-        plt.legend()
-        plt.savefig(f'./train_pred_plot.png')
-        plt.close()
+        save_dir = os.path.join('./results/', setting)
+        os.makedirs(save_dir, exist_ok=True)
+        # 여러 feature에 대해 각각 plot 저장
+        n_features = preds.shape[2] if preds.ndim == 3 else 1
+        plot_features = min(n_features, max_features)
+        for feature_idx in range(plot_features):
+            plt.figure(figsize=(10,5))
+            if preds.ndim == 3:
+                plt.plot(trues[0, :, feature_idx], label='True')
+                plt.plot(preds[0, :, feature_idx], label='Pred')
+                if hasattr(self.args, "target_columns"):
+                    plt.title(f"Train Prediction vs True ({self.args.target_columns[feature_idx]})")
+                else:
+                    plt.title(f"Train Prediction vs True (feature {feature_idx})")
+            elif preds.ndim == 2:
+                plt.plot(trues[0, :], label='True')
+                plt.plot(preds[0, :], label='Pred')
+                plt.title('Train Prediction vs True')
+            else:
+                raise ValueError(f"Unexpected preds shape: {preds.shape}")
+            plt.legend()
+            plt.savefig(os.path.join(save_dir, f'train_pred_plot_feature{feature_idx}.png'))
+            plt.close()
         
+    # only heat demand 코드 끝나고 원래대로 코드 바꿔놓기
+    # def test(self, setting, test=0):
+    #     test_data, test_loader = self._get_data(flag='test')
+    #     if test:
+    #         print('loading model')
+    #         self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
+
+    #     preds = []
+    #     attn_maps = []  # attention map 저장용 리스트 추가
+    #     folder_path = './test_results/' + setting + '/'
+    #     if not os.path.exists(folder_path):
+    #         os.makedirs(folder_path)
+
+    #     self.model.eval()
+    #     with torch.no_grad():
+    #         for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
+    #             batch_x = batch_x.float().to(self.device)
+    #             # batch_y = batch_y.float().to(self.device)  # target 없음
+
+    #             batch_x_mark = batch_x_mark.float().to(self.device)
+    #             batch_y_mark = batch_y_mark.float().to(self.device)
+
+    #             # decoder input
+    #             dec_inp = torch.zeros_like(batch_x[:, -self.args.pred_len:, :]).float()
+    #             dec_inp = torch.cat([batch_x[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+            
+    #             # encoder - decoder
+    #             if self.args.use_amp:
+    #                 with torch.cuda.amp.autocast():
+    #                     if self.args.output_attention:
+    #                         outputs, attns = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, output_attention=True)
+    #                     else:
+    #                         outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+    #                         attns = None
+    #             else:
+    #                 if self.args.output_attention:
+    #                     outputs, attns = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, output_attention=True)
+    #                 else:
+    #                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+    #                     attns = None
+
+    #             f_dim = -1 if self.args.features == 'MS' else 0
+    #             if outputs.dim() == 3:
+    #                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
+    #             elif outputs.dim() == 2:
+    #                 outputs = outputs[:, -self.args.pred_len:]
+    #             else:
+    #                 raise ValueError(f"Unexpected outputs shape: {outputs.shape}")
+            
+    #             outputs = outputs.detach().cpu().numpy()
+    #             preds.append(outputs)
+            
+    #             # --- attention map 저장 ---
+    #             if attns is not None:
+    #                 attn_maps_channel, attn_maps_token = attns  # tuple로 언패킹
+    #                 if isinstance(attn_maps_channel, list) and len(attn_maps_channel) > 0:
+    #                     attn_valid = [a for a in attn_maps_channel if a is not None]
+    #                     if len(attn_valid) > 0:
+    #                         attn_map = attn_valid[0].detach().cpu().numpy()
+    #                         attn_maps.append(attn_map)
+            
+    #         # --- pdf 저장 (gt 없음이므로 생략) ---
+
+    #     preds = np.array(preds)
+    #     print('test shape:', preds.shape)
+    #     preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
+    #     print('test shape:', preds.shape)
+
+    #     # --- attention map npy로 저장 ---
+    #     if len(attn_maps) > 0:
+    #         attn_maps = np.array(attn_maps)  # shape: (batch, ...)
+    #         # atten map 저장 x
+    #         # np.save(os.path.join(folder_path, "attention_maps.npy"), attn_maps)
+    #         if hasattr(self.args, "target_columns"):
+    #             import json
+    #             with open(os.path.join(folder_path, "channel_names.json"), "w", encoding="utf-8") as f:
+    #                 json.dump(self.args.target_columns, f, ensure_ascii=False, indent=2)
+    #         print(f"Saved attention maps: {attn_maps.shape}")
+
+    #     # result save
+    #     folder_path = './results/' + setting + '/'
+    #     if not os.path.exists(folder_path):
+    #         os.makedirs(folder_path)
+
+    #     # 예측값만 CSV로 저장
+    #     pred_csv_path = os.path.join(folder_path, "predictions.csv")
+    #     pd.DataFrame(preds.reshape(preds.shape[0], -1)).to_csv(pred_csv_path, index=False)
+    #     print(f"Saved predictions to {pred_csv_path}")
+
+    #     return
+        
+    # 기존 kist 코드
     def test(self, setting, test=0):
         test_data, test_loader = self._get_data(flag='test')
         if test:
@@ -926,18 +1027,20 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     # attn_maps_token이 list라면, 예를 들어 첫 번째 레이어의 token attention map만 저장
                     # attn_maps_channel -> 32개 channel 다 나옴
                     if isinstance(attn_maps_channel, list) and len(attn_maps_channel) > 0:
-                        attn_map = attn_maps_channel[0].detach().cpu().numpy()
-                        attn_maps.append(attn_map)
+                        attn_valid = [a for a in attn_maps_channel if a is not None]
+                        if len(attn_valid) > 0:
+                            attn_map = attn_valid[0].detach().cpu().numpy()
+                            attn_maps.append(attn_map)
                     
                 # --- pdf 저장 ---
-                if i % 200 == 0:
+                if i % 20 == 0:
                     input = batch_x.detach().cpu().numpy()
                     # shape이 (seq_len, feature)일 때
                     for ch in range(input.shape[2]):
                         # gt = np.concatenate((input[0, :, ch].reshape(-1), true[0, :, ch].reshape(-1)), axis=0)
                         # pd = np.concatenate((input[0, :, ch].reshape(-1), pred[0, :, ch].reshape(-1)), axis=0)
-                        gt = np.concatenate((input[0, :, -1], true[0, :, -1]), axis=0)
-                        pd = np.concatenate((input[0, :, -1], pred[0, :, -1]), axis=0)
+                        gt = np.concatenate((input[0, :, ch], true[0, :, ch]), axis=0)
+                        pd = np.concatenate((input[0, :, ch], pred[0, :, ch]), axis=0)
                         # 컬럼명 가져오기 (없으면 ch 인덱스만 사용)
                         if hasattr(self.args, "target_columns"):
                             col_name = self.args.target_columns[ch]

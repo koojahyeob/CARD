@@ -5,31 +5,31 @@ from argparse import Namespace
 args = Namespace(
     task_name='long_term_forecast',
     is_training=0,
-    model_id='ppltn_96_36',
+    model_id='ppltn_96_48',
     model='CARD',
     data='live_ppltn',
     root_path='./dataset/KT/live_ppltn_stts/',
-    data_path='live_ppltn_stts_250401_250507_preprocessed_real.csv',
+    data_path='live_ppltn_stts_241101_250610_preprocessed_real_median.csv',
     features='M',
     target='ppltn_rate20__ITW',
     freq='t',
     checkpoints='./checkpoints/',
     seq_len=96,
     label_len=20,
-    pred_len=36,
+    pred_len=48,
     seasonal_patterns='Monthly',
     mask_rate=0.25,
     anomaly_ratio=0.25,
     top_k=5,
     num_kernels=6,
-    enc_in=48,
-    dec_in=48,
-    c_out=48,
-    d_model=128,
+    enc_in=36,
+    dec_in=36,
+    c_out=36,
+    d_model=256,
     n_heads=8,
-    e_layers=2,
-    d_layers=1,
-    d_ff=256,
+    e_layers=4,
+    d_layers=2,
+    d_ff=512,
     moving_avg=25,
     factor=3,
     distil=True,
@@ -39,10 +39,10 @@ args = Namespace(
     output_attention=True,
     num_workers=0,
     itr=1,
-    train_epochs=1000,
-    batch_size=16,
+    train_epochs=100,
+    batch_size=32,
     patience=10,
-    learning_rate=0.002,
+    learning_rate=0.001,
     des='Exp',
     loss='MSE',
     lradj='type1',
@@ -75,14 +75,15 @@ args = Namespace(
     pct_start=0.3,
     seg_len=6,
     win_size=2,
-    fix_seed='None'
+    fix_seed='None',
+    data_length='241101_250610_run_250624_num'
 )
 
 # 2. 실험 객체 생성
 exp = Exp_Long_Term_Forecast(args)
 
 # 3. setting 문자열 (학습 때와 동일하게)
-setting = 'long_term_forecast_ppltn_96_36_CARD_live_ppltn_ftM_sl96_ll20_pl36_dm128_nh8_el2_dl1_df256_fc3_ebtimeF_dtTrue_Exp_0'
+setting = 'long_term_forecast_ppltn_96_48_CARD_live_ppltn_ftM_sl96_ll20_pl48_dm256_nh8_el4_dl2_df512_fc3_ebtimeF_dtTrue_Exp_0_241101_250610_run_250624_num'
 
 # 4. test만 실행 (checkpoint 자동 로드)
 exp.test(setting, test=1)

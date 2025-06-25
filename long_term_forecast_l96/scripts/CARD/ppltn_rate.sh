@@ -21,16 +21,18 @@ fi
 # 실제로 241125부터 데이터 들어가고, 성수와 홍대입구역(2호선) 인구수는 제외함 (결측값 너무 많아서)
 
 # ---------- 데이터 경로 ----------
-ROOT=./dataset/KT/live_ppltn_stts    # 끝에 / 없음
-# DATA=live_ppltn_stts_250401_250507_preprocessed_real.csv       # CSV 파일명
-DATA=live_ppltn_stts_241101_250610_preprocessed_real.csv       # CSV 파일명
+# ROOT=./dataset/KT/live_ppltn_stts    # 끝에 / 없음
+ROOT=./dataset/KT/live_ppltn    # 끝에 / 없음
+# CSV 파일명
+DATA=live_ppltn_num_241101_250610_preprocessed_real.csv 
+# DATA=live_ppltn_stts_241101_250610_preprocessed_real_without_ppltn_rate40__GN.csv      # CSV 파일명
 # data_length=250401_250507_run_250613_ver2  # 공백 제거 및 변수명 수정
-data_length=241101_250610_run_250616_prac  # 공백 제거 및 변수명 수정
+data_length=241101_250610_run_250625_num # 공백 제거 및 변수명 수정
 # ---------- 실험 파라미터 ----------7
 model_name=CARD
 
 # 예측 horizon 4가지 예시 (10·20·30·60분 뒤) ─ 한 GPU 당 하나씩 병렬
-pred_lens=(36)   # 예측 길이 (시퀀스 단위 10 -> 50분)      
+pred_lens=(48)   # 예측 길이 (시퀀스 단위 10 -> 50분)      
 cuda_ids=(0)                   # 사용 가능한 GPU 번호
 
 seq_len=96    # 입력 길이
@@ -58,12 +60,12 @@ for ((i = 0; i < ${#pred_lens[@]}; i++)); do
     --freq t \
     --factor 3 \
     --enc_in 32  --dec_in 32  --c_out 32 \
-    --e_layers 2  --d_layers 1 \
-    --d_model 128 --n_heads 8 --d_ff 256 \
+    --e_layers 4  --d_layers 2 \
+    --d_model 256 --n_heads 8 --d_ff 512 \
     --dropout 0.2 --fc_dropout 0.2 --head_dropout 0.0 \
-    --patch_len 32 --stride 8 \
-    --train_epochs 1000 --patience 10 \
-    --batch_size 32 --learning_rate 0.002 \
+    --patch_len 16 --stride 8 \
+    --train_epochs 100 --patience 10 \
+    --batch_size 32 --learning_rate 0.001 \
     --des "Exp" --itr 1 \
     --output_attention \
     --data_length "${data_length}" \
